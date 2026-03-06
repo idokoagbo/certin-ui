@@ -921,17 +921,15 @@
   <script src="https://unpkg.com/@elevenlabs/convai-widget-embed" type="text/javascript"></script>
 
   <style>
-    /* Completely suppress the widget UI */
+    /* Hide widget UI but keep it mountable (needs real dimensions to init) */
     elevenlabs-convai {
-      display: block;
       position: fixed !important;
-      width: 0 !important;
-      height: 0 !important;
+      left: -9999px !important;
+      top: -9999px !important;
+      width: 1px !important;
+      height: 1px !important;
       overflow: hidden !important;
-      opacity: 0 !important;
       pointer-events: none !important;
-      bottom: -9999px !important;
-      right: -9999px !important;
     }
   </style>
 
@@ -939,7 +937,9 @@
   <elevenlabs-convai id="el-agent" agent-id="agent_8401kk2gz0aje26rcf9p1msrg3vg"></elevenlabs-convai>
 
   <script>
-    var isActive = false;
+    const AGENT_ID = 'agent_8401kk2gz0aje26rcf9p1msrg3vg';
+    let isActive = false;
+    let widget = null;
 
     function updateButtons(label, active, disabled) {
       document.querySelectorAll('.btn-talk').forEach(function(btn) {
@@ -947,65 +947,44 @@
         if (lbl) lbl.textContent = label;
         btn.disabled = !!disabled;
         btn.style.opacity = disabled ? '0.6' : '';
-        if (active) btn.classList.add('active');
-        else btn.classList.remove('active');
+        btn.classList.toggle('active', !!active);
       });
     }
 
-    function startAgent() {
-      var el = document.getElementById('el-agent');
+    async function startAgent() {
+      widget = widget || document.getElementById('el-agent');
 
       if (isActive) {
-        // End session
         isActive = false;
         updateButtons('Talk to a Certin Agent', false, false);
-        try { el.endSession(); } catch(e) { console.warn('endSession:', e); }
+        try { await widget.endSession(); } catch(e) { console.warn('endSession:', e); }
         return;
       }
 
       isActive = true;
       updateButtons('Connecting...', false, true);
 
-      // The widget element exposes startSession() as a public method
-      // Wait for custom element to be fully defined before calling it
-      var tryStart = function() {
-        if (typeof el.startSession === 'function') {
-          el.startSession({ agentId: 'agent_8401kk2gz0aje26rcf9p1msrg3vg' })
-            .then(function() {
-              updateButtons('Listening...', true, false);
-            })
-            .catch(function(err) {
-              console.error('startSession error:', err);
-              isActive = false;
-              updateButtons('Talk to a Certin Agent', false, false);
-            });
-        } else if (customElements && customElements.get('elevenlabs-convai')) {
-          // Defined but no startSession yet — retry briefly
-          setTimeout(tryStart, 100);
-        } else {
-          // Not yet defined — wait for definition
-          customElements.whenDefined('elevenlabs-convai').then(function() {
-            setTimeout(tryStart, 100);
-          });
-        }
-      };
-
-      tryStart();
+      try {
+        await customElements.whenDefined('elevenlabs-convai');
+        await new Promise(function(r) { setTimeout(r, 150); });
+        await widget.startSession({ agentId: AGENT_ID });
+        updateButtons('End call', true, false);
+      } catch(err) {
+        console.error('startSession error:', err);
+        isActive = false;
+        updateButtons('Talk to a Certin Agent', false, false);
+        alert('Microphone access is required. Please allow it and try again.');
+      }
     }
 
-    // Listen for session events on the element
-    var el = document.getElementById('el-agent');
-    el.addEventListener('elevenlabs-convai:call-ended', function() {
-      isActive = false;
-      updateButtons('Talk to a Certin Agent', false, false);
-    });
-    el.addEventListener('disconnect', function() {
-      isActive = false;
-      updateButtons('Talk to a Certin Agent', false, false);
-    });
-
-    // Wire buttons on DOM ready
     document.addEventListener('DOMContentLoaded', function() {
+      widget = document.getElementById('el-agent');
+
+      widget.addEventListener('elevenlabs-convai:call-ended', function() {
+        isActive = false;
+        updateButtons('Talk to a Certin Agent', false, false);
+      });
+
       document.querySelectorAll('.btn-talk').forEach(function(btn) {
         btn.addEventListener('click', startAgent);
       });
