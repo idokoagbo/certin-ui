@@ -917,85 +917,94 @@
     <p>Built for logistics teams that move fast.</p>
   </footer>
 
-  <!-- ElevenLabs JS client — no widget, full programmatic control -->
-  <script src="https://unpkg.com/@11labs/client@latest/dist/index.umd.js"></script>
-  <script>
-    var conversation = null;
+  <!-- ElevenLabs: load embed script, call public API on the element — no widget UI shown -->
+  <script src="https://unpkg.com/@elevenlabs/convai-widget-embed" type="text/javascript"></script>
 
-    function setButtons(labelText, isActive, isDisabled) {
+  <style>
+    /* Completely suppress the widget UI */
+    elevenlabs-convai {
+      display: block;
+      position: fixed !important;
+      width: 0 !important;
+      height: 0 !important;
+      overflow: hidden !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+      bottom: -9999px !important;
+      right: -9999px !important;
+    }
+  </style>
+
+  <!-- Widget element in DOM but invisible — gives us access to its public API -->
+  <elevenlabs-convai id="el-agent" agent-id="agent_8401kk2gz0aje26rcf9p1msrg3vg"></elevenlabs-convai>
+
+  <script>
+    var isActive = false;
+
+    function updateButtons(label, active, disabled) {
       document.querySelectorAll('.btn-talk').forEach(function(btn) {
         var lbl = btn.querySelector('.btn-label');
-        if (lbl) lbl.textContent = labelText;
-        btn.disabled = !!isDisabled;
-        btn.style.opacity = isDisabled ? '0.6' : '';
-        if (isActive) btn.classList.add('active');
+        if (lbl) lbl.textContent = label;
+        btn.disabled = !!disabled;
+        btn.style.opacity = disabled ? '0.6' : '';
+        if (active) btn.classList.add('active');
         else btn.classList.remove('active');
       });
     }
 
-    async function startAgent() {
-      // End session if already running
-      if (conversation) {
-        try { await conversation.endSession(); } catch(e) {}
-        conversation = null;
-        setButtons('Talk to a Certin Agent', false, false);
+    function startAgent() {
+      var el = document.getElementById('el-agent');
+
+      if (isActive) {
+        // End session
+        isActive = false;
+        updateButtons('Talk to a Certin Agent', false, false);
+        try { el.endSession(); } catch(e) { console.warn('endSession:', e); }
         return;
       }
 
-      setButtons('Connecting...', false, true);
+      isActive = true;
+      updateButtons('Connecting...', false, true);
 
-      try {
-        // Request mic access explicitly so browser shows a clean permission prompt
-        await navigator.mediaDevices.getUserMedia({ audio: true });
-
-        var EL = window.ElevenLabsClient || window.ElevenLabs || window['@11labs/client'];
-        var Conversation = EL && (EL.Conversation || EL.default && EL.default.Conversation);
-
-        if (!Conversation) {
-          throw new Error('ElevenLabs client library not loaded. Check your internet connection.');
-        }
-
-        conversation = await Conversation.startSession({
-          agentId: 'agent_8401kk2gz0aje26rcf9p1msrg3vg',
-
-          onConnect: function() {
-            setButtons('Listening...', true, false);
-          },
-
-          onDisconnect: function() {
-            conversation = null;
-            setButtons('Talk to a Certin Agent', false, false);
-          },
-
-          onError: function(msg, context) {
-            console.error('Agent error:', msg, context);
-            conversation = null;
-            setButtons('Talk to a Certin Agent', false, false);
-          },
-
-          onModeChange: function(data) {
-            if (!conversation) return;
-            var mode = data && data.mode;
-            if (mode === 'speaking')  setButtons('Claire is speaking...', true, false);
-            if (mode === 'listening') setButtons('Listening...', true, false);
-            if (mode === 'thinking')  setButtons('Thinking...', true, false);
-          }
-        });
-
-      } catch(err) {
-        console.error('startAgent failed:', err);
-        conversation = null;
-        if (err.name === 'NotAllowedError') {
-          setButtons('Mic access denied', false, false);
-          setTimeout(function() { setButtons('Talk to a Certin Agent', false, false); }, 3000);
+      // The widget element exposes startSession() as a public method
+      // Wait for custom element to be fully defined before calling it
+      var tryStart = function() {
+        if (typeof el.startSession === 'function') {
+          el.startSession({ agentId: 'agent_8401kk2gz0aje26rcf9p1msrg3vg' })
+            .then(function() {
+              updateButtons('Listening...', true, false);
+            })
+            .catch(function(err) {
+              console.error('startSession error:', err);
+              isActive = false;
+              updateButtons('Talk to a Certin Agent', false, false);
+            });
+        } else if (customElements && customElements.get('elevenlabs-convai')) {
+          // Defined but no startSession yet — retry briefly
+          setTimeout(tryStart, 100);
         } else {
-          setButtons('Connection failed — try again', false, false);
-          setTimeout(function() { setButtons('Talk to a Certin Agent', false, false); }, 3000);
+          // Not yet defined — wait for definition
+          customElements.whenDefined('elevenlabs-convai').then(function() {
+            setTimeout(tryStart, 100);
+          });
         }
-      }
+      };
+
+      tryStart();
     }
 
-    // Wire up all .btn-talk buttons once DOM is ready
+    // Listen for session events on the element
+    var el = document.getElementById('el-agent');
+    el.addEventListener('elevenlabs-convai:call-ended', function() {
+      isActive = false;
+      updateButtons('Talk to a Certin Agent', false, false);
+    });
+    el.addEventListener('disconnect', function() {
+      isActive = false;
+      updateButtons('Talk to a Certin Agent', false, false);
+    });
+
+    // Wire buttons on DOM ready
     document.addEventListener('DOMContentLoaded', function() {
       document.querySelectorAll('.btn-talk').forEach(function(btn) {
         btn.addEventListener('click', startAgent);
